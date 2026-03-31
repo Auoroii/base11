@@ -1,0 +1,147 @@
+﻿paths:
+  iemocap_root: "/root/autodl-tmp/SER/base11/data/IEMOCAP_full_release"
+  metadata_csv: "data/metadata.csv"
+  noise_root: "/root/autodl-tmp/SER/base11/data/noise_root"
+  exp_root: "exp"
+
+# Dataset split strategy:
+# - loso: IEMOCAP-style leave-one-speaker-out (requires --fold_speaker)
+# - random: stratified random split (supports RAVDESS 8:1:1 by val_ratio=0.1/test_ratio=0.1)
+data:
+  split_mode: "loso" # loso|random
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+# Backward-compatible runtime section used by existing scripts.
+train:
+  epochs: 60
+  batch_size: 8
+  lr: 5e-5
+  seed: 1234
+  num_workers: 4
+  amp: true
+  val_split: 0.1
+  save_every: 20
+
+# Preferred training controls (override train.* when duplicated).
+training:
+  freeze_teacher: true
+  freeze_feature_encoder_epochs: 0
+  grad_clip: 1.0
+  amp: true
+  seed: 1234
+  scheduler: "cosine" # fixed|cosine|plateau
+  warmup_epochs: 5
+  warmup_start_lr: 5e-6
+  min_lr: 5e-6
+  plateau_factor: 0.5
+  plateau_patience: 3
+  plateau_threshold: 1e-4
+  early_stop_patience: 100
+  early_stopping: 12 # backward-compatible alias
+  monitor: "full_mean_UA" # full_mean_UA|proxy_mean_UA
+  eval_condition_mode: "deploy" # deploy|oracle
+  hybrid_warmup_epochs: 5
+  hybrid_transition_epochs: 15
+  save_best_full: true
+  save_best_proxy: true
+
+# Backward-compatible KD section.
+kd:
+  alpha: 0.7
+  temperature: 7.0
+
+model:
+  variant: "adaptive_dualpath_mlkd" # or "mlkd_baseline"
+  ablation: "dual_path_gate_pred" # baseline|enhancement_only|dual_path_no_gate|dual_path_gate_oracle|dual_path_gate_pred|dual_path_gate_pred_reg|dual_path_gate_hybrid
+  student_backbone_name: "teacher"
+  teacher_backbone_name: ""
+  student_num_hidden_layers: null # null => full teacher depth; 6 => distil-style
+  use_dual_path: true
+  use_enhancement: true
+  enhancement_type: "resunet"
+  enhancement_channels: 32
+  separate_branch_backbones: false
+  gate_type: "estimated" # estimated|none
+  gate_condition_mode: "predicted" # none|oracle|predicted|hybrid
+  condition_feat_dim: 64
+  use_oracle_snr: true
+  use_oracle_noise: true
+  use_aux_snr: true
+  use_aux_noise: true
+  use_snr_regression: false
+  snr_gate_temperature: 10.0
+  snr_gate_bias_strength: 0.75
+
+loss:
+  temperature: 7.0
+  lambda_ce: 0.30
+  lambda_kl: 0.70
+  lambda_mse: 1.00
+  lambda_enh: 0.20
+  lambda_snr: 0.05
+  lambda_noise: 0.05
+  lambda_snr_reg: 0.00
+  snr_reg_loss_type: "smooth_l1" # smooth_l1|mse
+  w_wav: 1.0
+  w_stft: 1.0
+  distill_layers: "original_even_mapping"
+  schedule: "staged" # fixed|staged
+
+# Stage weights are read by get_loss_weights(epoch, config).
+loss_schedule:
+  mode: "staged" # fixed|staged
+  stages:
+    - name: "stage_a"
+      start_epoch: 1
+      end_epoch: 20
+      lambda_ce: 1.0
+      lambda_kl: 0.7
+      lambda_mse: 1.0
+      lambda_enh: 0.2
+      lambda_snr: 0.05
+      lambda_noise: 0.05
+      lambda_snr_reg: 0.00
+    - name: "stage_b"
+      start_epoch: 21
+      end_epoch: 40
+      lambda_ce: 1.0
+      lambda_kl: 0.7
+      lambda_mse: 0.5
+      lambda_enh: 0.1
+      lambda_snr: 0.05
+      lambda_noise: 0.05
+      lambda_snr_reg: 0.00
+    - name: "stage_c"
+      start_epoch: 41
+      end_epoch: null
+      lambda_ce: 1.0
+      lambda_kl: 0.7
+      lambda_mse: 0.2
+      lambda_enh: 0.05
+      lambda_snr: 0.05
+      lambda_noise: 0.05
+      lambda_snr_reg: 0.00
+
+noise:
+  types: ["babble", "f16", "factory", "hf", "volvo"]
+  snrs: [0, 5, 10, 15, 20]
+  eval_type: "babble"
+  eval_snr: 10
+
+audio:
+  sample_rate: 16000
+  max_seconds: 6.0
+  eval_clip: true
+
+student_val:
+  proxy_eval_enabled: true
+  proxy_ratio: 0.25
+  min_samples_per_condition: 4
+  full_eval_every: 5
+  top_k_checkpoints: 5
+  trigger_full_eval_on_proxy_best: false
+  final_rerank_with_full_eval: false
+  val_manifest_seed: 42
+  proxy_manifest_path: ""
+  full_manifest_path: ""
